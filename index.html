@@ -41,6 +41,19 @@
         const { useState, useEffect } = React;
         const DEFAULT_AVATAR = "https://upload.wikimedia.org/wikipedia/commons/a/ac/Default_pfp.jpg";
 
+        // ==========================================================================================
+        // --- ÁREA DE CONFIGURAÇÃO (PREENCHIDA) ---
+        // ==========================================================================================
+        const MY_FIREBASE_CONFIG = {
+            apiKey: "AIzaSyDfHbm9EEHHYsJjkrPcQuGz2W08yfihnKg",
+            authDomain: "haking-251e5.firebaseapp.com",
+            projectId: "haking-251e5",
+            storageBucket: "haking-251e5.firebasestorage.app",
+            messagingSenderId: "966045519428",
+            appId: "1:966045519428:web:e6090e86269820c1bb7611"
+        };
+        // ==========================================================================================
+
         // Icons
         const Trophy = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>;
         const Search = ({size=20}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>;
@@ -59,41 +72,44 @@
                     const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, getFirestore, collection, getDocs } = window.firebaseModules;
                     
                     try {
-                        const firebaseConfig = JSON.parse(window.__firebase_config || '{}');
+                        let firebaseConfig = JSON.parse(window.__firebase_config || '{}');
+                        
+                        // Use Manual Config if provided
+                        if (Object.keys(firebaseConfig).length === 0 && MY_FIREBASE_CONFIG.apiKey) {
+                            firebaseConfig = MY_FIREBASE_CONFIG;
+                        }
+
                         const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-                        const app = initializeApp(firebaseConfig);
-                        const auth = getAuth(app);
-                        const db = getFirestore(app);
                         
-                        // Auth Logic Update: Check for custom token first
-                        if (window.__initial_auth_token) {
-                            await signInWithCustomToken(auth, window.__initial_auth_token);
-                        } else {
-                            await signInAnonymously(auth);
-                        }
-                        
-                        if (!auth.currentUser) {
-                            console.error("Usuário não autenticado");
-                            return;
-                        }
+                        if (Object.keys(firebaseConfig).length > 0) {
+                            const app = initializeApp(firebaseConfig);
+                            const auth = getAuth(app);
+                            const db = getFirestore(app);
+                            
+                            if (window.__initial_auth_token) {
+                                await signInWithCustomToken(auth, window.__initial_auth_token);
+                            } else {
+                                await signInAnonymously(auth);
+                            }
+                            
+                            // Apenas lê se estiver autenticado
+                            if (auth.currentUser) {
+                                const battleCollection = collection(db, 'artifacts', appId, 'public', 'data', 'battles');
+                                const snapshot = await getDocs(battleCollection);
+                                const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                                
+                                // Ordenação no cliente (mais seguro para evitar erros de índice)
+                                data.sort((a, b) => {
+                                    const dateA = a.date ? a.date.seconds : 0;
+                                    const dateB = b.date ? b.date.seconds : 0;
+                                    return dateB - dateA;
+                                });
 
-                        // Use Public Path without orderBy (sorting in memory)
-                        const battleCollection = collection(db, 'artifacts', appId, 'public', 'data', 'battles');
-                        const snapshot = await getDocs(battleCollection);
-                        
-                        const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-                        
-                        // Sort in Memory instead of Database to avoid index/permission issues
-                        data.sort((a, b) => {
-                            const dateA = a.date ? a.date.seconds : 0;
-                            const dateB = b.date ? b.date.seconds : 0;
-                            return dateB - dateA;
-                        });
-
-                        setBattles(data);
+                                setBattles(data);
+                            }
+                        }
                     } catch (e) { 
                         console.error("Erro ao carregar ranking:", e); 
-                        //alert("Erro ao conectar com o ranking. Tente recarregar.");
                     }
                     setLoading(false);
                 };
@@ -130,6 +146,7 @@
                                             <img 
                                                 src={battle.ranking.find(r => r.position === 1)?.avatar || DEFAULT_AVATAR} 
                                                 className="w-full h-full object-cover"
+                                                referrerPolicy="no-referrer"
                                                 onError={(e) => e.target.src = DEFAULT_AVATAR}
                                             />
                                         </div>
