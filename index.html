@@ -38,7 +38,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, memo } = React;
         const DEFAULT_AVATAR = "https://upload.wikimedia.org/wikipedia/commons/a/ac/Default_pfp.jpg";
 
         // ==========================================================================================
@@ -54,6 +54,19 @@
         };
         // ==========================================================================================
 
+        // Avatar Otimizado
+        const FighterAvatar = memo(({ url, name }) => {
+            return (
+                <img 
+                    src={url || DEFAULT_AVATAR} 
+                    alt={name} 
+                    className="w-full h-full object-cover" 
+                    referrerPolicy="no-referrer"
+                    onError={(e) => { e.target.src = DEFAULT_AVATAR; }} 
+                />
+            );
+        });
+
         // Icons
         const Trophy = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>;
         const Search = ({size=20}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>;
@@ -66,6 +79,7 @@
             const [searchQuery, setSearchQuery] = useState('');
             const [loading, setLoading] = useState(true);
             const [isOffline, setIsOffline] = useState(false);
+            const [errorMsg, setErrorMsg] = useState('');
 
             useEffect(() => {
                 const init = async () => {
@@ -74,10 +88,11 @@
                     
                     try {
                         let firebaseConfig = JSON.parse(window.__firebase_config || '{}');
+                        let isManual = false;
                         
-                        // Use Manual Config if provided
-                        if (Object.keys(firebaseConfig).length === 0 && MY_FIREBASE_CONFIG.apiKey) {
+                        if (MY_FIREBASE_CONFIG.apiKey && MY_FIREBASE_CONFIG.apiKey.length > 5) {
                             firebaseConfig = MY_FIREBASE_CONFIG;
+                            isManual = true;
                         }
 
                         const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
@@ -87,30 +102,47 @@
                             const auth = getAuth(app);
                             const db = getFirestore(app);
                             
-                            if (window.__initial_auth_token) {
-                                await signInWithCustomToken(auth, window.__initial_auth_token);
-                            } else {
-                                await signInAnonymously(auth);
+                            // Tenta autenticação
+                            try {
+                                if (window.__initial_auth_token) {
+                                    await signInWithCustomToken(auth, window.__initial_auth_token);
+                                } else {
+                                    await signInAnonymously(auth);
+                                }
+                            } catch (authErr) {
+                                console.warn("Falha no login, tentando continuar:", authErr);
                             }
                             
                             if (auth.currentUser) {
-                                const battleCollection = collection(db, 'artifacts', appId, 'public', 'data', 'battles');
-                                const snapshot = await getDocs(battleCollection);
-                                const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-                                
-                                data.sort((a, b) => {
-                                    const dateA = a.date ? a.date.seconds : 0;
-                                    const dateB = b.date ? b.date.seconds : 0;
-                                    return dateB - dateA;
-                                });
+                                // Tenta ler a coleção raiz 'battles' se for manual, ou 'artifacts' se for canvas
+                                const battleCollection = isManual 
+                                    ? collection(db, 'battles') 
+                                    : collection(db, 'artifacts', appId, 'public', 'data', 'battles');
 
-                                setBattles(data);
-                                setIsOffline(false);
+                                try {
+                                    const snapshot = await getDocs(battleCollection);
+                                    const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                                    
+                                    data.sort((a, b) => {
+                                        const dateA = a.date ? a.date.seconds : 0;
+                                        const dateB = b.date ? b.date.seconds : 0;
+                                        return dateB - dateA;
+                                    });
+
+                                    setBattles(data);
+                                    setIsOffline(false);
+                                } catch (queryErr) {
+                                    console.error("Erro ao ler dados:", queryErr);
+                                    if (queryErr.code === 'permission-denied' || queryErr.message.includes('permission')) {
+                                        setErrorMsg("Atenção: Permissão negada no Firebase. Configure as Regras de Segurança.");
+                                        // Força erro para cair no catch abaixo e carregar local
+                                        throw new Error("Permission Denied");
+                                    }
+                                }
                             }
                         }
                     } catch (e) { 
-                        console.error("Erro nuvem, tentando local:", e); 
-                        // Fallback para LocalStorage se a nuvem falhar
+                        console.log("Falha na nuvem, carregando dados locais."); 
                         try {
                             const localData = JSON.parse(localStorage.getItem('batebate_rankings') || '[]');
                             localData.sort((a, b) => {
@@ -136,7 +168,20 @@
                         <header className="mb-10 text-center">
                             <h1 className="text-4xl md:text-6xl font-black mb-2 gradient-text">HALL DA FAMA</h1>
                             <p className="text-slate-400">Histórico Oficial das Batalhas</p>
-                            {isOffline && <div className="mt-2 text-red-400 text-xs bg-red-900/20 inline-block px-2 py-1 rounded border border-red-500/30">Modo Offline (Permissão Negada na Nuvem)</div>}
+                            
+                            {isOffline && (
+                                <div className="mt-4 p-3 bg-red-900/30 border border-red-500/50 rounded-lg inline-block text-left max-w-lg">
+                                    <div className="text-red-400 font-bold text-sm mb-1 flex items-center gap-2">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                        Modo Offline (Dados Locais)
+                                    </div>
+                                    <p className="text-xs text-slate-300">
+                                        Não foi possível conectar ao banco de dados na nuvem. Exibindo apenas o que foi salvo neste navegador.
+                                        <br/>
+                                        <strong>Dica para o dono:</strong> Verifique as "Regras" (Rules) no Firestore Database.
+                                    </p>
+                                </div>
+                            )}
                         </header>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -158,7 +203,6 @@
                                             <img 
                                                 src={battle.ranking.find(r => r.position === 1)?.avatar || DEFAULT_AVATAR} 
                                                 className="w-full h-full object-cover"
-                                                referrerPolicy="no-referrer"
                                                 onError={(e) => e.target.src = DEFAULT_AVATAR}
                                             />
                                         </div>
@@ -218,12 +262,7 @@
                                     </div>
                                     
                                     <div className={`relative rounded-full overflow-hidden border-2 ${player.position === 1 ? 'w-14 h-14 border-yellow-400' : 'w-10 h-10 border-slate-600'}`}>
-                                        <img 
-                                            src={player.avatar || DEFAULT_AVATAR} 
-                                            className="w-full h-full object-cover" 
-                                            onError={(e) => e.target.src = DEFAULT_AVATAR}
-                                            referrerPolicy="no-referrer"
-                                        />
+                                        <FighterAvatar url={player.avatar} name={player.name} />
                                     </div>
                                     
                                     <div className="flex-1 min-w-0">
