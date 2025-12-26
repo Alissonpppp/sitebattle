@@ -65,6 +65,7 @@
             const [selectedBattle, setSelectedBattle] = useState(null);
             const [searchQuery, setSearchQuery] = useState('');
             const [loading, setLoading] = useState(true);
+            const [isOffline, setIsOffline] = useState(false);
 
             useEffect(() => {
                 const init = async () => {
@@ -92,13 +93,11 @@
                                 await signInAnonymously(auth);
                             }
                             
-                            // Apenas lê se estiver autenticado
                             if (auth.currentUser) {
                                 const battleCollection = collection(db, 'artifacts', appId, 'public', 'data', 'battles');
                                 const snapshot = await getDocs(battleCollection);
                                 const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
                                 
-                                // Ordenação no cliente (mais seguro para evitar erros de índice)
                                 data.sort((a, b) => {
                                     const dateA = a.date ? a.date.seconds : 0;
                                     const dateB = b.date ? b.date.seconds : 0;
@@ -106,10 +105,22 @@
                                 });
 
                                 setBattles(data);
+                                setIsOffline(false);
                             }
                         }
                     } catch (e) { 
-                        console.error("Erro ao carregar ranking:", e); 
+                        console.error("Erro nuvem, tentando local:", e); 
+                        // Fallback para LocalStorage se a nuvem falhar
+                        try {
+                            const localData = JSON.parse(localStorage.getItem('batebate_rankings') || '[]');
+                            localData.sort((a, b) => {
+                                const dateA = a.date ? a.date.seconds : 0;
+                                const dateB = b.date ? b.date.seconds : 0;
+                                return dateB - dateA;
+                            });
+                            setBattles(localData);
+                            setIsOffline(true);
+                        } catch (err) { console.error(err); }
                     }
                     setLoading(false);
                 };
@@ -125,6 +136,7 @@
                         <header className="mb-10 text-center">
                             <h1 className="text-4xl md:text-6xl font-black mb-2 gradient-text">HALL DA FAMA</h1>
                             <p className="text-slate-400">Histórico Oficial das Batalhas</p>
+                            {isOffline && <div className="mt-2 text-red-400 text-xs bg-red-900/20 inline-block px-2 py-1 rounded border border-red-500/30">Modo Offline (Permissão Negada na Nuvem)</div>}
                         </header>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
