@@ -19,9 +19,9 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, getDocs, doc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        window.firebaseModules = { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, getFirestore, collection, getDocs };
+        window.firebaseModules = { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, getFirestore, collection, getDocs, doc, getDoc };
     </script>
     
     <style>
@@ -32,6 +32,7 @@
         ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: #1e293b; }
         ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        .tab-active { border-bottom: 2px solid #eab308; color: #eab308; }
     </style>
 </head>
 <body>
@@ -41,9 +42,6 @@
         const { useState, useEffect, memo } = React;
         const DEFAULT_AVATAR = "https://upload.wikimedia.org/wikipedia/commons/a/ac/Default_pfp.jpg";
 
-        // ==========================================================================================
-        // --- ÁREA DE CONFIGURAÇÃO (PREENCHIDA) ---
-        // ==========================================================================================
         const MY_FIREBASE_CONFIG = {
             apiKey: "AIzaSyDfHbm9EEHHYsJjkrPcQuGz2W08yfihnKg",
             authDomain: "haking-251e5.firebaseapp.com",
@@ -52,19 +50,9 @@
             messagingSenderId: "966045519428",
             appId: "1:966045519428:web:e6090e86269820c1bb7611"
         };
-        // ==========================================================================================
 
-        // Avatar Otimizado
         const FighterAvatar = memo(({ url, name }) => {
-            return (
-                <img 
-                    src={url || DEFAULT_AVATAR} 
-                    alt={name} 
-                    className="w-full h-full object-cover" 
-                    referrerPolicy="no-referrer"
-                    onError={(e) => { e.target.src = DEFAULT_AVATAR; }} 
-                />
-            );
+            return <img src={url || DEFAULT_AVATAR} alt={name} className="w-full h-full object-cover" referrerPolicy="no-referrer" onError={(e) => { e.target.src = DEFAULT_AVATAR; }} />;
         });
 
         // Icons
@@ -72,29 +60,30 @@
         const Search = ({size=20}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>;
         const Calendar = ({size=16}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>;
         const Back = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>;
+        const Star = ({size=16}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>;
+        const AlertIcon = ({size=16}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>;
 
         function RankingApp() {
+            const [view, setView] = useState('list'); // list, detail, leaderboard
             const [battles, setBattles] = useState([]);
             const [selectedBattle, setSelectedBattle] = useState(null);
             const [searchQuery, setSearchQuery] = useState('');
             const [loading, setLoading] = useState(true);
             const [isOffline, setIsOffline] = useState(false);
-            const [errorMsg, setErrorMsg] = useState('');
+            const [permissionError, setPermissionError] = useState(false);
+            const [activeEvent, setActiveEvent] = useState(null);
+            const [leaderboard, setLeaderboard] = useState([]);
+            const [timeLeft, setTimeLeft] = useState('');
 
             useEffect(() => {
                 const init = async () => {
                     if (!window.firebaseModules) { setTimeout(init, 100); return; }
-                    const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, getFirestore, collection, getDocs } = window.firebaseModules;
+                    const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, getFirestore, collection, getDocs, doc, getDoc } = window.firebaseModules;
                     
                     try {
                         let firebaseConfig = JSON.parse(window.__firebase_config || '{}');
                         let isManual = false;
-                        
-                        if (MY_FIREBASE_CONFIG.apiKey && MY_FIREBASE_CONFIG.apiKey.length > 5) {
-                            firebaseConfig = MY_FIREBASE_CONFIG;
-                            isManual = true;
-                        }
-
+                        if (MY_FIREBASE_CONFIG.apiKey && MY_FIREBASE_CONFIG.apiKey.length > 5) { firebaseConfig = MY_FIREBASE_CONFIG; isManual = true; }
                         const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
                         
                         if (Object.keys(firebaseConfig).length > 0) {
@@ -102,184 +91,226 @@
                             const auth = getAuth(app);
                             const db = getFirestore(app);
                             
-                            // Tenta autenticação
-                            try {
-                                if (window.__initial_auth_token) {
-                                    await signInWithCustomToken(auth, window.__initial_auth_token);
-                                } else {
-                                    await signInAnonymously(auth);
-                                }
-                            } catch (authErr) {
-                                console.warn("Falha no login, tentando continuar:", authErr);
-                            }
+                            if (isManual) await signInAnonymously(auth);
+                            else if (window.__initial_auth_token) await signInWithCustomToken(auth, window.__initial_auth_token);
+                            else await signInAnonymously(auth);
                             
                             if (auth.currentUser) {
-                                // Tenta ler a coleção raiz 'battles' se for manual, ou 'artifacts' se for canvas
-                                const battleCollection = isManual 
-                                    ? collection(db, 'battles') 
-                                    : collection(db, 'artifacts', appId, 'public', 'data', 'battles');
-
                                 try {
-                                    const snapshot = await getDocs(battleCollection);
+                                    // 1. Fetch Battles
+                                    const battlePath = isManual ? collection(db, 'battles') : collection(db, 'artifacts', appId, 'public', 'data', 'battles');
+                                    const snapshot = await getDocs(battlePath);
                                     const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-                                    
-                                    data.sort((a, b) => {
-                                        const dateA = a.date ? a.date.seconds : 0;
-                                        const dateB = b.date ? b.date.seconds : 0;
-                                        return dateB - dateA;
-                                    });
-
+                                    data.sort((a, b) => (b.date?.seconds || 0) - (a.date?.seconds || 0));
                                     setBattles(data);
-                                    setIsOffline(false);
-                                } catch (queryErr) {
-                                    console.error("Erro ao ler dados:", queryErr);
-                                    if (queryErr.code === 'permission-denied' || queryErr.message.includes('permission')) {
-                                        setErrorMsg("Atenção: Permissão negada no Firebase. Configure as Regras de Segurança.");
-                                        // Força erro para cair no catch abaixo e carregar local
-                                        throw new Error("Permission Denied");
+
+                                    // 2. Fetch Active Event
+                                    const eventPathStr = isManual ? 'current_event' : `artifacts/${appId}/public/data/current_event`;
+                                    // Acessa a coleção current_event, documento 'active'
+                                    // Nota: Se a coleção não existir ou permissões negadas, vai cair no catch
+                                    try {
+                                        const eventDoc = await getDoc(doc(db, eventPathStr, 'active'));
+                                        if (eventDoc.exists() && eventDoc.data().active) {
+                                            const evt = eventDoc.data();
+                                            setActiveEvent(evt);
+                                            
+                                            // 3. Calculate Leaderboard
+                                            const scores = {};
+                                            const eventStart = evt.startDate.seconds;
+                                            const eventEnd = evt.endDate.seconds;
+
+                                            data.forEach(battle => {
+                                                if (battle.date && battle.date.seconds >= eventStart && battle.date.seconds <= eventEnd) {
+                                                    battle.ranking.forEach((player) => {
+                                                        if (!scores[player.name]) scores[player.name] = { name: player.name, avatar: player.avatar, score: 0, wins: 0 };
+                                                        
+                                                        let pts = 1; // Participação
+                                                        if (player.position === 1) { pts += 100; scores[player.name].wins++; }
+                                                        else if (player.position === 2) pts += 50;
+                                                        else if (player.position === 3) pts += 25;
+                                                        else if (player.position <= 10) pts += 10;
+                                                        
+                                                        scores[player.name].score += pts;
+                                                    });
+                                                }
+                                            });
+                                            const lb = Object.values(scores).sort((a,b) => b.score - a.score);
+                                            setLeaderboard(lb);
+                                        }
+                                    } catch (evtErr) {
+                                        console.warn("Erro ao buscar evento (provavelmente permissão):", evtErr);
                                     }
+                                    
+                                    setIsOffline(false);
+                                } catch (dbErr) {
+                                    if (dbErr.code === 'permission-denied') {
+                                        setPermissionError(true);
+                                        throw dbErr; // Joga para o catch principal para carregar local
+                                    }
+                                    throw dbErr;
                                 }
                             }
                         }
                     } catch (e) { 
-                        console.log("Falha na nuvem, carregando dados locais."); 
+                        console.error("Entrando em modo offline:", e);
+                        // Offline Fallback
                         try {
                             const localData = JSON.parse(localStorage.getItem('batebate_rankings') || '[]');
-                            localData.sort((a, b) => {
-                                const dateA = a.date ? a.date.seconds : 0;
-                                const dateB = b.date ? b.date.seconds : 0;
-                                return dateB - dateA;
-                            });
+                            localData.sort((a, b) => (b.date?.seconds || 0) - (a.date?.seconds || 0));
                             setBattles(localData);
                             setIsOffline(true);
-                        } catch (err) { console.error(err); }
+                        } catch(err){}
                     }
                     setLoading(false);
                 };
                 init();
             }, []);
 
+            // Countdown Timer
+            useEffect(() => {
+                if (!activeEvent) return;
+                const timer = setInterval(() => {
+                    const now = new Date().getTime();
+                    const end = new Date(activeEvent.endDate.seconds * 1000).getTime();
+                    const dist = end - now;
+                    if (dist < 0) {
+                        setTimeLeft("EVENTO ENCERRADO");
+                    } else {
+                        const d = Math.floor(dist / (1000 * 60 * 60 * 24));
+                        const h = Math.floor((dist % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                        setTimeLeft(`${d}d ${h}h restantes`);
+                    }
+                }, 1000);
+                return () => clearInterval(timer);
+            }, [activeEvent]);
+
             if (loading) return <div className="h-screen flex items-center justify-center text-pink-500 font-bold text-xl animate-pulse">Carregando Hall da Fama...</div>;
 
-            // VIEW: LISTA DE BATALHAS
-            if (!selectedBattle) {
+            // VIEW: LEADERBOARD GERAL
+            if (view === 'leaderboard') {
                 return (
-                    <div className="min-h-screen bg-slate-900 p-4 md:p-8 max-w-5xl mx-auto">
-                        <header className="mb-10 text-center">
-                            <h1 className="text-4xl md:text-6xl font-black mb-2 gradient-text">HALL DA FAMA</h1>
-                            <p className="text-slate-400">Histórico Oficial das Batalhas</p>
-                            
-                            {isOffline && (
-                                <div className="mt-4 p-3 bg-red-900/30 border border-red-500/50 rounded-lg inline-block text-left max-w-lg">
-                                    <div className="text-red-400 font-bold text-sm mb-1 flex items-center gap-2">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                                        Modo Offline (Dados Locais)
-                                    </div>
-                                    <p className="text-xs text-slate-300">
-                                        Não foi possível conectar ao banco de dados na nuvem. Exibindo apenas o que foi salvo neste navegador.
-                                        <br/>
-                                        <strong>Dica para o dono:</strong> Verifique as "Regras" (Rules) no Firestore Database.
-                                    </p>
-                                </div>
-                            )}
-                        </header>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {battles.length === 0 && <p className="text-slate-500 col-span-3 text-center py-10">Nenhuma batalha registrada ainda.</p>}
-                            {battles.map(battle => (
-                                <div key={battle.id} onClick={() => setSelectedBattle(battle)} className="bg-slate-800 rounded-xl p-6 cursor-pointer card border border-slate-700 hover:border-pink-500/50">
-                                    <div className="flex items-center justify-between mb-4">
-                                        <span className="bg-pink-600 text-xs font-bold px-2 py-1 rounded text-white uppercase tracking-wide">Finalizado</span>
-                                        <div className="flex items-center gap-1 text-slate-400 text-xs">
-                                            <Calendar/>
-                                            {battle.date ? new Date(battle.date.seconds * 1000).toLocaleDateString() : 'Data Desconhecida'}
-                                        </div>
-                                    </div>
-                                    <h2 className="text-xl font-bold text-white mb-1 truncate">{battle.name}</h2>
-                                    <p className="text-slate-400 text-sm mb-4">Vencedor:</p>
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-full border-2 border-yellow-500 overflow-hidden">
-                                            {/* Busca a foto do vencedor no ranking */}
-                                            <img 
-                                                src={battle.ranking.find(r => r.position === 1)?.avatar || DEFAULT_AVATAR} 
-                                                className="w-full h-full object-cover"
-                                                onError={(e) => e.target.src = DEFAULT_AVATAR}
-                                            />
-                                        </div>
-                                        <span className="font-bold text-yellow-400 truncate">@{battle.winner}</span>
-                                    </div>
-                                </div>
-                            ))}
+                    <div className="h-screen bg-slate-900 flex flex-col">
+                        <div className="bg-slate-800 border-b border-slate-700 p-4 flex items-center justify-between shadow-lg z-10">
+                            <button onClick={() => setView('list')} className="p-2 hover:bg-slate-700 rounded-full transition"><Back/></button>
+                            <h2 className="text-xl font-bold text-yellow-400">RANKING GERAL</h2>
+                            <div className="w-8"></div>
                         </div>
+                        
+                        {activeEvent ? (
+                            <div className="flex-1 overflow-y-auto p-4 md:p-8">
+                                <div className="max-w-2xl mx-auto text-center mb-8">
+                                    <h1 className="text-3xl font-black text-white mb-2">{activeEvent.title}</h1>
+                                    <p className="text-yellow-400 font-bold text-xl mb-1">Prêmio: {activeEvent.prize}</p>
+                                    <p className="text-slate-500 text-sm">{timeLeft}</p>
+                                    <div className="flex justify-center gap-2 mt-4 text-xs text-slate-400">
+                                        <span className="bg-slate-800 px-2 py-1 rounded border border-slate-700">🥇 100pts</span>
+                                        <span className="bg-slate-800 px-2 py-1 rounded border border-slate-700">🥈 50pts</span>
+                                        <span className="bg-slate-800 px-2 py-1 rounded border border-slate-700">🥉 25pts</span>
+                                    </div>
+                                </div>
+
+                                <div className="max-w-3xl mx-auto flex flex-col gap-2">
+                                    {leaderboard.map((p, i) => (
+                                        <div key={p.name} className={`flex items-center gap-4 p-3 rounded-lg border ${i===0 ? 'bg-yellow-500/10 border-yellow-500' : 'bg-slate-800 border-slate-700'}`}>
+                                            <div className={`font-bold w-8 text-center ${i<3 ? 'text-yellow-400 text-xl' : 'text-slate-500'}`}>{i+1}º</div>
+                                            <div className="w-10 h-10 rounded-full border border-slate-600 overflow-hidden">
+                                                <FighterAvatar url={p.avatar} name={p.name}/>
+                                            </div>
+                                            <div className="flex-1">
+                                                <div className="font-bold text-white">@{p.name}</div>
+                                                <div className="text-xs text-slate-400">{p.wins} vitórias</div>
+                                            </div>
+                                            <div className="font-black text-xl text-pink-500">{p.score} <span className="text-xs text-slate-500">pts</span></div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex-1 flex flex-col items-center justify-center text-slate-500 p-8 text-center">
+                                <p className="mb-2">Nenhum evento ativo no momento.</p>
+                                {permissionError && <p className="text-xs text-red-400 bg-red-900/20 p-2 rounded">Não foi possível verificar eventos devido a restrições do Firebase.</p>}
+                            </div>
+                        )}
                     </div>
                 );
             }
 
             // VIEW: DETALHES DA BATALHA
-            return (
-                <div className="h-screen bg-slate-900 flex flex-col">
-                    {/* Header Detalhe */}
-                    <div className="bg-slate-800 border-b border-slate-700 p-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-lg z-10">
-                        <div className="flex items-center gap-4 w-full md:w-auto">
-                            <button onClick={() => setSelectedBattle(null)} className="p-2 hover:bg-slate-700 rounded-full transition"><Back/></button>
-                            <div>
-                                <h2 className="text-2xl font-bold text-white leading-tight">{selectedBattle.name}</h2>
-                                <p className="text-xs text-slate-400 flex items-center gap-1"><Calendar size={12}/> {selectedBattle.date ? new Date(selectedBattle.date.seconds * 1000).toLocaleDateString() : ''}</p>
+            if (selectedBattle) {
+                return (
+                    <div className="h-screen bg-slate-900 flex flex-col">
+                        <div className="bg-slate-800 border-b border-slate-700 p-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-lg z-10">
+                            <div className="flex items-center gap-4 w-full md:w-auto">
+                                <button onClick={() => setSelectedBattle(null)} className="p-2 hover:bg-slate-700 rounded-full transition"><Back/></button>
+                                <div>
+                                    <h2 className="text-2xl font-bold text-white leading-tight">{selectedBattle.name}</h2>
+                                    <p className="text-xs text-slate-400 flex items-center gap-1"><Calendar size={12}/> {selectedBattle.date ? new Date(selectedBattle.date.seconds * 1000).toLocaleDateString() : ''}</p>
+                                </div>
+                            </div>
+                            <div className="relative w-full md:w-64">
+                                <input type="text" placeholder="Buscar participante..." className="w-full bg-slate-900 border border-slate-600 rounded-full py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-pink-500 transition" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+                                <div className="absolute left-3 top-2.5 text-slate-500"><Search size={16}/></div>
                             </div>
                         </div>
-                        
-                        <div className="relative w-full md:w-64">
-                            <input 
-                                type="text" 
-                                placeholder="Buscar participante..." 
-                                className="w-full bg-slate-900 border border-slate-600 rounded-full py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-pink-500 transition"
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                            />
-                            <div className="absolute left-3 top-2.5 text-slate-500"><Search size={16}/></div>
+                        <div className="flex-1 overflow-y-auto p-4 md:p-8">
+                            <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {selectedBattle.ranking.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase())).map((player) => (
+                                    <div key={player.position} className={`flex items-center gap-4 p-3 rounded-lg border transition ${player.position === 1 ? 'bg-yellow-500/10 border-yellow-500/50' : 'bg-slate-800/50 border-slate-700 hover:bg-slate-800'}`}>
+                                        <div className={`font-black text-2xl w-10 text-center ${player.position === 1 ? 'text-yellow-400' : 'text-slate-600'}`}>{player.position === 1 ? '1º' : player.position}</div>
+                                        <div className={`relative rounded-full overflow-hidden border-2 ${player.position === 1 ? 'w-14 h-14 border-yellow-400' : 'w-10 h-10 border-slate-600'}`}><FighterAvatar url={player.avatar} name={player.name} /></div>
+                                        <div className="flex-1 min-w-0"><div className={`font-bold truncate ${player.position === 1 ? 'text-yellow-400 text-lg' : 'text-white'}`}>@{player.name}</div></div>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     </div>
+                );
+            }
 
-                    {/* Lista Ranking */}
-                    <div className="flex-1 overflow-y-auto p-4 md:p-8">
-                        <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {selectedBattle.ranking
-                                .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
-                                .map((player) => (
-                                <div key={player.position} className={`flex items-center gap-4 p-3 rounded-lg border transition ${
-                                    player.position === 1 ? 'bg-yellow-500/10 border-yellow-500/50' : 
-                                    player.position === 2 ? 'bg-slate-800 border-slate-600' : 
-                                    player.position === 3 ? 'bg-slate-800 border-slate-600' : 
-                                    'bg-slate-800/50 border-slate-700 hover:bg-slate-800'
-                                }`}>
-                                    <div className={`font-black text-2xl w-10 text-center ${
-                                        player.position === 1 ? 'text-yellow-400 drop-shadow-md' : 
-                                        player.position === 2 ? 'text-gray-300' : 
-                                        player.position === 3 ? 'text-amber-600' : 
-                                        'text-slate-600 text-lg'
-                                    }`}>
-                                        {player.position === 1 ? '1º' : player.position}
-                                    </div>
-                                    
-                                    <div className={`relative rounded-full overflow-hidden border-2 ${player.position === 1 ? 'w-14 h-14 border-yellow-400' : 'w-10 h-10 border-slate-600'}`}>
-                                        <FighterAvatar url={player.avatar} name={player.name} />
-                                    </div>
-                                    
-                                    <div className="flex-1 min-w-0">
-                                        <div className={`font-bold truncate ${player.position === 1 ? 'text-yellow-400 text-lg' : 'text-white'}`}>
-                                            @{player.name}
-                                        </div>
-                                        {player.position === 1 && <div className="text-xs text-yellow-500/70 font-bold uppercase tracking-wider">Campeão</div>}
-                                    </div>
-                                    
-                                    {player.position <= 3 && <div className="text-2xl">{player.position === 1 ? '👑' : player.position === 2 ? '🥈' : '🥉'}</div>}
-                                </div>
-                            ))}
-                            
-                            {selectedBattle.ranking.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && (
-                                <div className="col-span-2 text-center text-slate-500 py-10">Nenhum participante encontrado com esse nome.</div>
-                            )}
+            // VIEW: HOME (LISTA DE BATALHAS)
+            return (
+                <div className="min-h-screen bg-slate-900 p-4 md:p-8 max-w-5xl mx-auto">
+                    <header className="mb-8 text-center">
+                        <h1 className="text-4xl md:text-6xl font-black mb-2 gradient-text">HALL DA FAMA</h1>
+                        
+                        {/* MENU DE NAVEGAÇÃO */}
+                        <div className="flex justify-center gap-4 mt-6">
+                            <button onClick={() => setView('list')} className={`px-4 py-2 rounded-full font-bold transition ${view==='list' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>Batalhas</button>
+                            <button onClick={() => setView('leaderboard')} className={`px-4 py-2 rounded-full font-bold transition flex items-center gap-2 ${view==='leaderboard' ? 'bg-yellow-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}><Trophy size={16}/> Ranking Geral (Evento)</button>
                         </div>
+                        
+                        {permissionError && (
+                            <div className="mt-4 p-4 bg-red-900/30 border border-red-500/50 rounded-lg inline-block text-left text-sm max-w-lg">
+                                <div className="text-red-400 font-bold mb-1 flex items-center gap-2"><AlertIcon/> Permissão Negada (Firebase)</div>
+                                <p className="text-slate-300">O banco de dados bloqueou o acesso. Copie e cole isto nas Regras (Rules) do seu Firebase Console:</p>
+                                <code className="block bg-black/50 p-2 mt-2 rounded text-green-400 text-xs select-all">
+                                    match /battles/&#123;document=**&#125; &#123; allow read, write: if true; &#125;<br/>
+                                    match /current_event/&#123;document=**&#125; &#123; allow read, write: if true; &#125;
+                                </code>
+                            </div>
+                        )}
+
+                        {isOffline && !permissionError && <div className="mt-4 text-orange-400 text-xs bg-orange-900/20 inline-block px-2 py-1 rounded border border-orange-500/30">Modo Offline (Mostrando apenas dados locais)</div>}
+                    </header>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {battles.length === 0 && <p className="text-slate-500 col-span-3 text-center py-10">Nenhuma batalha registrada ainda.</p>}
+                        {battles.map(battle => (
+                            <div key={battle.id} onClick={() => setSelectedBattle(battle)} className="bg-slate-800 rounded-xl p-6 cursor-pointer card border border-slate-700 hover:border-pink-500/50">
+                                <div className="flex items-center justify-between mb-4">
+                                    <span className="bg-pink-600 text-xs font-bold px-2 py-1 rounded text-white uppercase tracking-wide">Finalizado</span>
+                                    <div className="flex items-center gap-1 text-slate-400 text-xs"><Calendar/> {battle.date ? new Date(battle.date.seconds * 1000).toLocaleDateString() : 'Data Desconhecida'}</div>
+                                </div>
+                                <h2 className="text-xl font-bold text-white mb-1 truncate">{battle.name}</h2>
+                                <p className="text-slate-400 text-sm mb-4">Vencedor:</p>
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full border-2 border-yellow-500 overflow-hidden">
+                                        <FighterAvatar url={battle.ranking.find(r => r.position === 1)?.avatar} name={battle.winner} />
+                                    </div>
+                                    <span className="font-bold text-yellow-400 truncate">@{battle.winner}</span>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 </div>
             );
