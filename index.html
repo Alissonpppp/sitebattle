@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hall da Fama - Bate-Bate Royale</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        window.firebaseModules = { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, getFirestore, collection, getDocs };
+    </script>
+    
+    <style>
+        body { background-color: #0f172a; color: white; margin: 0; font-family: 'Segoe UI', sans-serif; }
+        .gradient-text { background: linear-gradient(to right, #ec4899, #eab308); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .card { transition: all 0.3s ease; }
+        .card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5); }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        const DEFAULT_AVATAR = "https://upload.wikimedia.org/wikipedia/commons/a/ac/Default_pfp.jpg";
+
+        // Icons
+        const Trophy = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>;
+        const Search = ({size=20}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>;
+        const Calendar = ({size=16}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>;
+        const Back = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>;
+
+        function RankingApp() {
+            const [battles, setBattles] = useState([]);
+            const [selectedBattle, setSelectedBattle] = useState(null);
+            const [searchQuery, setSearchQuery] = useState('');
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                const init = async () => {
+                    if (!window.firebaseModules) { setTimeout(init, 100); return; }
+                    const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, getFirestore, collection, getDocs } = window.firebaseModules;
+                    
+                    try {
+                        const firebaseConfig = JSON.parse(window.__firebase_config || '{}');
+                        const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+                        const app = initializeApp(firebaseConfig);
+                        const auth = getAuth(app);
+                        const db = getFirestore(app);
+                        
+                        // Auth Logic Update: Check for custom token first
+                        if (window.__initial_auth_token) {
+                            await signInWithCustomToken(auth, window.__initial_auth_token);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                        
+                        if (!auth.currentUser) {
+                            console.error("Usuário não autenticado");
+                            return;
+                        }
+
+                        // Use Public Path without orderBy (sorting in memory)
+                        const battleCollection = collection(db, 'artifacts', appId, 'public', 'data', 'battles');
+                        const snapshot = await getDocs(battleCollection);
+                        
+                        const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                        
+                        // Sort in Memory instead of Database to avoid index/permission issues
+                        data.sort((a, b) => {
+                            const dateA = a.date ? a.date.seconds : 0;
+                            const dateB = b.date ? b.date.seconds : 0;
+                            return dateB - dateA;
+                        });
+
+                        setBattles(data);
+                    } catch (e) { 
+                        console.error("Erro ao carregar ranking:", e); 
+                        //alert("Erro ao conectar com o ranking. Tente recarregar.");
+                    }
+                    setLoading(false);
+                };
+                init();
+            }, []);
+
+            if (loading) return <div className="h-screen flex items-center justify-center text-pink-500 font-bold text-xl animate-pulse">Carregando Hall da Fama...</div>;
+
+            // VIEW: LISTA DE BATALHAS
+            if (!selectedBattle) {
+                return (
+                    <div className="min-h-screen bg-slate-900 p-4 md:p-8 max-w-5xl mx-auto">
+                        <header className="mb-10 text-center">
+                            <h1 className="text-4xl md:text-6xl font-black mb-2 gradient-text">HALL DA FAMA</h1>
+                            <p className="text-slate-400">Histórico Oficial das Batalhas</p>
+                        </header>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {battles.length === 0 && <p className="text-slate-500 col-span-3 text-center py-10">Nenhuma batalha registrada ainda.</p>}
+                            {battles.map(battle => (
+                                <div key={battle.id} onClick={() => setSelectedBattle(battle)} className="bg-slate-800 rounded-xl p-6 cursor-pointer card border border-slate-700 hover:border-pink-500/50">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <span className="bg-pink-600 text-xs font-bold px-2 py-1 rounded text-white uppercase tracking-wide">Finalizado</span>
+                                        <div className="flex items-center gap-1 text-slate-400 text-xs">
+                                            <Calendar/>
+                                            {battle.date ? new Date(battle.date.seconds * 1000).toLocaleDateString() : 'Data Desconhecida'}
+                                        </div>
+                                    </div>
+                                    <h2 className="text-xl font-bold text-white mb-1 truncate">{battle.name}</h2>
+                                    <p className="text-slate-400 text-sm mb-4">Vencedor:</p>
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-full border-2 border-yellow-500 overflow-hidden">
+                                            {/* Busca a foto do vencedor no ranking */}
+                                            <img 
+                                                src={battle.ranking.find(r => r.position === 1)?.avatar || DEFAULT_AVATAR} 
+                                                className="w-full h-full object-cover"
+                                                onError={(e) => e.target.src = DEFAULT_AVATAR}
+                                            />
+                                        </div>
+                                        <span className="font-bold text-yellow-400 truncate">@{battle.winner}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
+            }
+
+            // VIEW: DETALHES DA BATALHA
+            return (
+                <div className="h-screen bg-slate-900 flex flex-col">
+                    {/* Header Detalhe */}
+                    <div className="bg-slate-800 border-b border-slate-700 p-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-lg z-10">
+                        <div className="flex items-center gap-4 w-full md:w-auto">
+                            <button onClick={() => setSelectedBattle(null)} className="p-2 hover:bg-slate-700 rounded-full transition"><Back/></button>
+                            <div>
+                                <h2 className="text-2xl font-bold text-white leading-tight">{selectedBattle.name}</h2>
+                                <p className="text-xs text-slate-400 flex items-center gap-1"><Calendar size={12}/> {selectedBattle.date ? new Date(selectedBattle.date.seconds * 1000).toLocaleDateString() : ''}</p>
+                            </div>
+                        </div>
+                        
+                        <div className="relative w-full md:w-64">
+                            <input 
+                                type="text" 
+                                placeholder="Buscar participante..." 
+                                className="w-full bg-slate-900 border border-slate-600 rounded-full py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-pink-500 transition"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                            />
+                            <div className="absolute left-3 top-2.5 text-slate-500"><Search size={16}/></div>
+                        </div>
+                    </div>
+
+                    {/* Lista Ranking */}
+                    <div className="flex-1 overflow-y-auto p-4 md:p-8">
+                        <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {selectedBattle.ranking
+                                .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
+                                .map((player) => (
+                                <div key={player.position} className={`flex items-center gap-4 p-3 rounded-lg border transition ${
+                                    player.position === 1 ? 'bg-yellow-500/10 border-yellow-500/50' : 
+                                    player.position === 2 ? 'bg-slate-800 border-slate-600' : 
+                                    player.position === 3 ? 'bg-slate-800 border-slate-600' : 
+                                    'bg-slate-800/50 border-slate-700 hover:bg-slate-800'
+                                }`}>
+                                    <div className={`font-black text-2xl w-10 text-center ${
+                                        player.position === 1 ? 'text-yellow-400 drop-shadow-md' : 
+                                        player.position === 2 ? 'text-gray-300' : 
+                                        player.position === 3 ? 'text-amber-600' : 
+                                        'text-slate-600 text-lg'
+                                    }`}>
+                                        {player.position === 1 ? '1º' : player.position}
+                                    </div>
+                                    
+                                    <div className={`relative rounded-full overflow-hidden border-2 ${player.position === 1 ? 'w-14 h-14 border-yellow-400' : 'w-10 h-10 border-slate-600'}`}>
+                                        <img 
+                                            src={player.avatar || DEFAULT_AVATAR} 
+                                            className="w-full h-full object-cover" 
+                                            onError={(e) => e.target.src = DEFAULT_AVATAR}
+                                            referrerPolicy="no-referrer"
+                                        />
+                                    </div>
+                                    
+                                    <div className="flex-1 min-w-0">
+                                        <div className={`font-bold truncate ${player.position === 1 ? 'text-yellow-400 text-lg' : 'text-white'}`}>
+                                            @{player.name}
+                                        </div>
+                                        {player.position === 1 && <div className="text-xs text-yellow-500/70 font-bold uppercase tracking-wider">Campeão</div>}
+                                    </div>
+                                    
+                                    {player.position <= 3 && <div className="text-2xl">{player.position === 1 ? '👑' : player.position === 2 ? '🥈' : '🥉'}</div>}
+                                </div>
+                            ))}
+                            
+                            {selectedBattle.ranking.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && (
+                                <div className="col-span-2 text-center text-slate-500 py-10">Nenhum participante encontrado com esse nome.</div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<RankingApp />);
+    </script>
+</body>
+</html>
